@@ -38,7 +38,10 @@ def startup_init_db():
         existing = db.scalar(select(User).where(User.email == "1@1.lt"))
         if not existing:
             db.add(User(email="1@1.lt", name="user1", password_hash=pwd_context.hash("1")))
-            db.commit()
+        else:
+            existing.password_hash = pwd_context.hash("1")
+            existing.name = "user1"
+        db.commit()
 
 
 @app.get("/health")
