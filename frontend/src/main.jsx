@@ -1,0 +1,181 @@
+import React, { useMemo, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import './styles.css'
+
+const API_BASE = ''
+
+function App() {
+  const [active, setActive] = useState('register')
+  const [regName, setRegName] = useState('')
+  const [regEmail, setRegEmail] = useState('')
+  const [regPassword, setRegPassword] = useState('')
+  const [loginEmail, setLoginEmail] = useState('1@1.lt')
+  const [loginPassword, setLoginPassword] = useState('1')
+  const [user, setUser] = useState(null)
+  const [file, setFile] = useState(null)
+  const [sourceUrl, setSourceUrl] = useState('')
+  const [previewUrl, setPreviewUrl] = useState('')
+  const [status, setStatus] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [stats, setStats] = useState(null)
+
+  const mediaType = useMemo(() => (file?.type?.startsWith('video') ? 'video' : 'image'), [file])
+
+  const callJson = async (path, options) => {
+    const res = await fetch(`${API_BASE}${path}`, options)
+    const text = await res.text()
+    let data = {}
+    try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text || 'Neteisingas serverio atsakymas' } }
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`)
+    return data
+  }
+
+  const loadStats = async (userId) => {
+    try {
+      const data = await callJson(`/api/media/user/${userId}/stats`, { method: 'GET' })
+      setStats(data)
+    } catch {
+      setStats(null)
+    }
+  }
+
+  const register = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setStatus(null)
+    try {
+      const data = await callJson('/api/auth/register', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: regName, email: regEmail, password: regPassword }),
+      })
+      setUser(data)
+      setActive('upload')
+      setStatus({ ok: `Paskyra sukurta: ${data.name}` })
+      loadStats(data.id)
+    } catch (err) {
+      setStatus({ error: err.message })
+    } finally { setLoading(false) }
+  }
+
+  const login = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setStatus(null)
+    try {
+      const data = await callJson('/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      })
+      setUser({ id: data.user_id, name: data.name, email: loginEmail })
+      setActive('upload')
+      setStatus({ ok: `Prisijungta: ${data.name}` })
+      loadStats(data.user_id)
+    } catch (err) {
+      setStatus({ error: err.message })
+    } finally { setLoading(false) }
+  }
+
+  const deleteUpload = async (mediaId) => {
+    try {
+      await callJson(`/api/media/${mediaId}`, { method: 'DELETE' })
+      setStatus({ ok: `Ištrintas įkėlimas #${mediaId}` })
+      if (user) loadStats(user.id)
+    } catch (err) {
+      setStatus({ error: err.message })
+    }
+  }
+
+  const upload = async (e) => {
+    e.preventDefault()
+    if (!user) return setStatus({ error: 'Pirmiausia prisijunkite arba užsiregistruokite.' })
+    if (!file) return setStatus({ error: 'Pasirinkite nuotrauką arba video failą.' })
+    setLoading(true)
+    setStatus(null)
+    const fd = new FormData()
+    fd.append('user_id', String(user.id))
+    fd.append('media_type', mediaType)
+    fd.append('source_url', sourceUrl)
+    fd.append('title', file.name)
+    fd.append('author_name', user.name)
+    fd.append('file', file)
+
+    try {
+      const data = await callJson('/api/media/upload', { method: 'POST', body: fd })
+      setStatus({ ok: `Statusas: ${data.status}`, proof: `/api/proof/${data.proof_slug}` })
+      loadStats(user.id)
+    } catch (err) {
+      setStatus({ error: err.message })
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-white"><div className="max-w-3xl mx-auto p-6">
+      <h1 className="text-3xl font-bold mb-2">ProofCapture</h1>
+      <p className="text-slate-300 mb-6">Viskas viename: registracija, prisijungimas ir nuotraukos įkėlimas. Demo prisijungimas: 1@1.lt / 1</p>
+      <div className="flex gap-2 mb-6">
+        <button className="px-3 py-2 rounded bg-slate-800" onClick={() => setActive('register')}>Registracija</button>
+        <button className="px-3 py-2 rounded bg-slate-800" onClick={() => setActive('login')}>Prisijungimas</button>
+        <button className="px-3 py-2 rounded bg-slate-800" onClick={() => setActive('upload')}>Įkelti</button>
+      </div>
+
+      {active === 'register' && <form onSubmit={register} className="grid gap-3 bg-slate-900 p-5 rounded-xl">
+        <input placeholder="Vardas" className="p-3 rounded bg-slate-800" value={regName} onChange={(e) => setRegName(e.target.value)} />
+        <input placeholder="El. paštas" className="p-3 rounded bg-slate-800" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} />
+        <input placeholder="Slaptažodis" type="password" className="p-3 rounded bg-slate-800" value={regPassword} onChange={(e) => setRegPassword(e.target.value)} />
+        <button disabled={loading} className="bg-indigo-500 rounded p-3">{loading ? 'Kuriama...' : 'Sukurti paskyrą'}</button>
+      </form>}
+
+      {active === 'login' && <form onSubmit={login} className="grid gap-3 bg-slate-900 p-5 rounded-xl">
+        <input placeholder="El. paštas" className="p-3 rounded bg-slate-800" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} />
+        <input placeholder="Slaptažodis" type="password" className="p-3 rounded bg-slate-800" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} />
+        <button disabled={loading} className="bg-indigo-500 rounded p-3">{loading ? 'Jungiamasi...' : 'Prisijungti'}</button>
+      </form>}
+
+      {active === 'upload' && <form onSubmit={upload} className="grid gap-3 bg-slate-900 p-5 rounded-xl">
+        <p className="text-sm text-slate-300">Prisijungęs vartotojas: {user ? `${user.name} (#${user.id})` : 'Nėra'}</p>
+        <input type="file" className="p-3 rounded bg-slate-800" onChange={(e) => { const f = e.target.files?.[0] || null; setFile(f); setPreviewUrl(f ? URL.createObjectURL(f) : '') }} />
+        <input placeholder="Šaltinio URL (nebūtina)" className="p-3 rounded bg-slate-800" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} />
+        {previewUrl && mediaType === 'image' && <img src={previewUrl} alt="preview" className="max-h-24 rounded border border-slate-700" />}
+        <button disabled={loading} className="bg-emerald-600 rounded p-3">{loading ? 'Keliama...' : 'Įkelti nuotrauką/video'}</button>
+      </form>}
+
+      {status && <div className="mt-5 bg-slate-900 border border-slate-700 rounded-xl p-4">
+        {status.error && <p className="text-red-300">Klaida: {status.error}</p>}
+        {status.ok && <p className="text-emerald-300">{status.ok}</p>}
+        {status.proof && <a className="underline text-indigo-300" href={status.proof} target="_blank">Atidaryti proof puslapį</a>}
+      </div>}
+
+      {stats && <div className="mt-5 bg-slate-900 border border-slate-700 rounded-xl p-4">
+        <h3 className="font-semibold mb-3 text-lg">Mano statistika</h3>
+        <div className="grid grid-cols-3 gap-3 text-center mb-4">
+          <div className="bg-slate-800 rounded-lg p-2"><div className="text-xs text-slate-300">Viso</div><div className="text-xl font-bold">{stats.total_uploads}</div></div>
+          <div className="bg-slate-800 rounded-lg p-2"><div className="text-xs text-slate-300">Nuotraukos</div><div className="text-xl font-bold">{stats.image_uploads}</div></div>
+          <div className="bg-slate-800 rounded-lg p-2"><div className="text-xs text-slate-300">Video</div><div className="text-xl font-bold">{stats.video_uploads}</div></div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-separate border-spacing-y-2">
+            <thead>
+              <tr className="text-slate-300 text-left">
+                <th>ID</th><th>Pavadinimas</th><th>Statusas</th><th>Pirmas</th><th>Kada</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.latest_uploads.map((u) => (
+                <tr key={u.id} className="bg-slate-800">
+                  <td className="p-2">#{u.id}</td>
+                  <td className="p-2">{u.title}</td>
+                  <td className="p-2">{u.is_first_for_hash ? 'Pirma' : `Ne pirma (#${u.rank_for_same_hash})`}</td>
+                  <td className="p-2">{u.first_uploader_name || 'unknown'} (ID {u.first_uploader_id})</td>
+                  <td className="p-2">{String(u.first_registered_at).slice(0,19).replace('T',' ')}</td>
+                  <td className="p-2 text-right"><button className="bg-red-600 hover:bg-red-500 px-2 py-1 rounded" onClick={() => deleteUpload(u.id)}>Ištrinti</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>}
+    </div></main>
+  )
+}
+
+createRoot(document.getElementById('root')).render(<App />)
